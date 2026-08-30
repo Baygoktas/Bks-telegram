@@ -3,31 +3,51 @@ import { sendTelegramMessage } from '../telegram.js';
 import { translateToTurkish } from '../translate.js';
 
 export async function handleDYK(env) {
-  const now = new Date();
-  const trDate = new Date(now.getTime() + (3 * 60 * 60 * 1000));
-  const year = trDate.getUTCFullYear();
-  const month = String(trDate.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(trDate.getUTCDate()).padStart(2, '0');
+  // Rastgele bir geçmiş ay ve gün seçerek havuzu sınırsız yapıyoruz
+  const randomMonth = String(Math.floor(Math.random() * 12) + 1).padStart(2, '0');
+  const randomDay = String(Math.floor(Math.random() * 28) + 1).padStart(2, '0');
+  const randomYear = Math.floor(Math.random() * (2025 - 2018 + 1)) + 2018;
 
-  // İngilizce zengin DYK feed'inden çekip Türkçeleştirme
-  const url = `https://en.wikipedia.org/api/rest_v1/feed/featured/${year}/${month}/${day}`;
+  const url = `https://en.wikipedia.org/api/rest_v1/feed/featured/${randomYear}/${randomMonth}/${randomDay}`;
   const response = await fetch(url, { headers: { 'User-Agent': 'TelegramBot/1.0' } });
 
   if (!response.ok) return;
   const data = await response.json();
   const dykList = data.dyk || [];
 
-  for (const item of dykList) {
-    const rawText = item.text.replace(/<[^>]*>/g, '');
-    const isUsed = await isAlreadyPublished(env.DB, rawText);
+  if (dykList.length === 0) return;
+
+  // Rastgele karıştır
+  const shuffled = dykList.sort(() => 0.5 - Math.random());
+
+  for (const item of shuffled) {
+    let rawText = item.text || '';
+    
+    // HTML etiketlerini ve ... that kalıplarını temizle
+    const cleanSourceText = rawText
+      .replace(/<[^>]*>/g, '')
+      .replace(/^\.\.\.\s*that\s*/i, '')
+      .replace(/^\.\.\.\s*/i, '')
+      .trim();
+
+    if (cleanSourceText.length < 20) continue;
+
+    const isUsed = await isAlreadyPublished(env.DB, cleanSourceText);
 
     if (!isUsed) {
-      let trText = await translateToTurkish(rawText);
-      trText = trText.replace(/^\.\.\.\s*that\s*/i, '').replace(/^\.\.\.\s*/i, '');
+      // Çeviriyi yap
+      const turkishText = await translateToTurkish(cleanSourceText);
 
-      const message = `💡 <b>BUNU BİLİYOR MUYDUNUZ?</b>\n\n👀 ${trText}\n\n🔍 <i>Kaynak: Bilim & Kültür Ansiklopedisi</i>`;
+      // İlgili makalenin Wikipedia bağlantısı
+      let articleUrl = 'https://en.wikipedia.org/wiki/Portal:Contents';
+      if (item.pages && item.pages[0]?.content_urls?.desktop?.page) {
+        articleUrl = item.pages[0].content_urls.desktop.page;
+      }
+
+      const message = `💡 <b>BUNU BİLİYOR MUYDUNUZ?</b>\n\n👀 ${turkishText}\n\n🔍 <a href="${articleUrl}">Kaynak ve Detaylar</a>`;
+
       await sendTelegramMessage(env, message);
-      await recordPublished(env.DB, 'bbm', rawText);
+      await recordPublished(env.DB, 'bbm', cleanSourceText);
       break;
     }
   }
