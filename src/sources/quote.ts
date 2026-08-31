@@ -10,8 +10,6 @@ export interface QuoteEnv {
   TELEGRAM_CHANNEL_ID: string;
 }
 
-// Sabit isim listesi yerine geniş Wikiquote kategorileri kullanıyoruz.
-// Her kategori genelde 100-500 arası yazar/filozof içerir, havuz pratikte çok geniş.
 const BOOK_CATEGORIES = [
   "Category:Novelists",
   "Category:American novelists",
@@ -141,4 +139,10 @@ export async function postQuote(
   const quoteTr = await translateToTurkish(quote, env.DEEPL_API_KEY);
 
   const sourceUrl = `https://en.wikiquote.org/wiki/${encodeURIComponent(author)}`;
-  const message = `${emoji} <b>${label}</b>\n\n"${quoteTr}"\n\n— ${
+  const message = `${emoji} <b>${label}</b>\n\n"${quoteTr}"\n\n— ${author}\n\n🔗 Kaynak: <a href="${sourceUrl}">Wikiquote</a>`;
+
+  await sendTelegramMessage(env, message);
+
+  const hash = await makeContentHash(category, `${author}|${quote}`);
+  await markAsPosted(env.DB, hash, category, sourceUrl);
+}
