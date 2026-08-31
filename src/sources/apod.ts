@@ -21,7 +21,13 @@ interface ApodResponse {
 
 export async function postApod(env: ApodEnv): Promise<void> {
   const res = await fetch(
-    `https://api.nasa.gov/planetary/apod?api_key=${env.NASA_API_KEY}`
+    `https://api.nasa.gov/planetary/apod?api_key=${env.NASA_API_KEY}`,
+    {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; BKS-TelegramBot/1.0)",
+        "Accept": "application/json",
+      },
+    }
   );
   if (!res.ok) {
     throw new Error(`NASA APOD fetch failed: ${res.status}`);
@@ -42,7 +48,6 @@ export async function postApod(env: ApodEnv): Promise<void> {
 
   if (data.media_type === "image") {
     const imageUrl = data.hdurl || data.url;
-    // Telegram fotoğraf caption sınırı 1024 karakter
     if (caption.length > 1024) {
       const shortCaption = `🔭 <b>${titleTr}</b>\n\n🔗 Kaynak: <a href="https://apod.nasa.gov/apod/astropix.html">NASA APOD</a>`;
       await sendTelegramPhoto(env, imageUrl, shortCaption);
@@ -50,7 +55,6 @@ export async function postApod(env: ApodEnv): Promise<void> {
       await sendTelegramPhoto(env, imageUrl, caption);
     }
   } else {
-    // media_type "video" ise (bazen NASA video paylaşır), sadece metin gönderelim
     await sendTelegramMessage(env, caption);
   }
 
