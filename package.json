@@ -1,0 +1,17 @@
+{
+  "name": "bks-telegram-bot",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:create": "wrangler d1 create bks-db",
+    "db:migrate:local": "wrangler d1 execute bks-db --local --file=./schema.sql",
+    "db:migrate:remote": "wrangler d1 execute bks-db --remote --file=./schema.sql"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0",
+    "typescript": "^5.5.0",
+    "@cloudflare/workers-types": "^4.20250101.0"
+  }
+}
