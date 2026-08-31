@@ -53,7 +53,6 @@ function extractBulletItems(wikitext: string, minLen = 20, maxLen = 500): string
   return items;
 }
 
-// --- Türkçe kaynak: Vikipedi:Biliyor muydunuz?/YYYY-AA-GG (günlük arşiv) ---
 async function fetchTrDidYouKnow(): Promise<{ text: string; sourceUrl: string } | null> {
   const start = new Date("2006-01-01");
   const end = new Date();
@@ -76,7 +75,6 @@ async function fetchTrDidYouKnow(): Promise<{ text: string; sourceUrl: string } 
   return { text: shuffled[0], sourceUrl };
 }
 
-// --- İngilizce kaynak: Wikipedia:Recent additions/YYYY/Ay (aylık arşiv) ---
 async function fetchEnDidYouKnow(): Promise<{ text: string; sourceUrl: string } | null> {
   const startYear = 2010;
   const endYear = new Date().getFullYear();
@@ -89,4 +87,56 @@ async function fetchEnDidYouKnow(): Promise<{ text: string; sourceUrl: string } 
   )}&prop=wikitext&format=json&origin=*`;
 
   const data: any = await wikiFetchText(url).then((t) => JSON.parse(t));
-  i
+  if (data.error || !data.parse?.wikitext) return null;
+
+  const items = extractBulletItems(data.parse.wikitext["*"]).filter((t) => t.includes("?"));
+  if (items.length === 0) return null;
+
+  const sourceUrl = `https://en.wikipedia.org/wiki/Wikipedia:Recent_additions/${year}/${month}`;
+  const shuffled = [...items].sort(() => Math.random() - 0.5);
+  return { text: shuffled[0], sourceUrl };
+}
+
+async function findUnpostedFact(
+  db: D1Database,
+  maxAttempts = 10
+): Promise<{ text: string; sourceUrl: string } | null> {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const useTurkish = Math.random() < 0.5;
+
+    let result: { text: string; sourceUrl: string } | null = null;
+    try {
+      result = useTurkish ? await fetchTrDidYouKnow() : await fetchEnDidYouKnow();
+    } catch (e) {
+      console.log(`Biliyor muydunuz kaynak hatası (${useTurkish ? "TR" : "EN"}): ${e}`);
+      continue;
+    }
+
+    if (!result) continue;
+
+    const hash = await makeContentHash("did_you_know", result.text);
+    const posted = await isAlreadyPosted(db, hash);
+    if (!posted) {
+      return result;
+    }
+  }
+  return null;
+}
+
+export async function postDidYouKnow(env: DidYouKnowEnv): Promise<void> {
+  const result = await findUnpostedFact(env.DB);
+  if (!result) {
+    console.log("Biliyor muydunuz: uygun yeni içerik bulunamadı.");
+    return;
+  }
+
+  const { text, sourceUrl } = result;
+  const textTr = await translateToTurkish(text, env.DEEPL_API_KEY);
+
+  const message = `💡 <b>Biliyor muydunuz?</b>\n\n${textTr}\n\n🔗 Kaynak: <a href="${sourceUrl}">Vikipedi</a>`;
+
+  await sendTelegramMessage(env, message);
+
+  const hash = await makeContentHash("did_you_know", text);
+  await markAsPosted(env.DB, hash, "did_you_know", sourceUrl);
+}
