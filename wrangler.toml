@@ -5,7 +5,7 @@ compatibility_date = "2026-08-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "bks-db"
-database_id = "BURAYA_D1_ID_GELECEK"
+database_id = "fc84b4a1-3563-4890-83cf-9d620b3360bc"
 
 [triggers]
 crons = ["0 6-16 * * *"]
