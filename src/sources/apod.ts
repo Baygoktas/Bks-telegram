@@ -1,6 +1,6 @@
 import { translateToTurkish } from "../lib/translate";
 import { makeContentHash, isAlreadyPosted, markAsPosted } from "../lib/dedupe";
-import { sendTelegramPhoto, sendTelegramMessage } from "../lib/telegram";
+import { sendTelegramPhoto, sendTelegramMessage, sendTelegramVideo } from "../lib/telegram";
 
 export interface ApodEnv {
   DB: D1Database;
@@ -17,6 +17,11 @@ interface ApodResponse {
   hdurl?: string;
   media_type: string;
   date: string;
+  copyright?: string;
+}
+
+function isDirectVideoFile(url: string): boolean {
+  return /\.(mp4|mov|webm)(\?.*)?$/i.test(url);
 }
 
 export async function postApod(env: ApodEnv): Promise<void> {
@@ -43,19 +48,43 @@ export async function postApod(env: ApodEnv): Promise<void> {
 
   const titleTr = await translateToTurkish(data.title, env.DEEPL_API_KEY);
   const explanationTr = await translateToTurkish(data.explanation, env.DEEPL_API_KEY);
+  const creditLine = data.copyright ? `\n© ${data.copyright.trim()}\n` : "\n";
 
-  const caption = `🔭 <b>${titleTr}</b>\n\n${explanationTr}\n\n🔗 Kaynak: <a href="https://apod.nasa.gov/apod/astropix.html">NASA APOD</a>`;
+  const fullCaption =
+    `🔭 <b>GÜNÜN UZAY FOTOĞRAFI</b>\n\n` +
+    `<b>${titleTr}</b>\n\n` +
+    `${explanationTr}\n` +
+    `${creditLine}\n` +
+    `🔗 Kaynak: <a href="https://apod.nasa.gov/apod/astropix.html">NASA APOD</a>`;
+
+  const shortCaption =
+    `🔭 <b>GÜNÜN UZAY FOTOĞRAFI</b>\n\n` +
+    `<b>${titleTr}</b>\n` +
+    `${creditLine}\n` +
+    `🔗 Kaynak: <a href="https://apod.nasa.gov/apod/astropix.html">NASA APOD</a>`;
 
   if (data.media_type === "image") {
     const imageUrl = data.hdurl || data.url;
-    if (caption.length > 1024) {
-      const shortCaption = `🔭 <b>${titleTr}</b>\n\n🔗 Kaynak: <a href="https://apod.nasa.gov/apod/astropix.html">NASA APOD</a>`;
+    if (fullCaption.length > 1024) {
       await sendTelegramPhoto(env, imageUrl, shortCaption);
     } else {
-      await sendTelegramPhoto(env, imageUrl, caption);
+      await sendTelegramPhoto(env, imageUrl, fullCaption);
+    }
+  } else if (data.media_type === "video" && isDirectVideoFile(data.url)) {
+    // Doğrudan mp4/mov/webm dosyası ise video olarak göndermeyi dene
+    const caption = fullCaption.length > 1024 ? shortCaption : fullCaption;
+    const sent = await sendTelegramVideo(env, data.url, caption);
+    if (!sent) {
+      // Video çok büyük veya Telegram indiremedi, metne düş
+      await sendTelegramMessage(env, fullCaption.length > 4096 ? shortCaption : fullCaption);
     }
   } else {
-    await sendTelegramMessage(env, caption);
+    // YouTube gibi gömülü video ise (doğrudan dosya değil), metin + link olarak gönder
+    const messageWithLink = `${fullCaption}\n\n🎬 Video: ${data.url}`;
+    await sendTelegramMessage(
+      env,
+      messageWithLink.length > 4096 ? shortCaption : messageWithLink
+    );
   }
 
   await markAsPosted(env.DB, contentHash, "apod", data.url);
