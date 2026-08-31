@@ -1,6 +1,6 @@
 import { translateToTurkish } from "../lib/translate";
 import { makeContentHash, isAlreadyPosted, markAsPosted } from "../lib/dedupe";
-import { sendTelegramPhoto, sendTelegramMessage, sendTelegramVideo } from "../lib/telegram";
+import { sendTelegramPhoto, sendTelegramVideo } from "../lib/telegram";
 
 export interface ApodEnv {
   DB: D1Database;
@@ -18,6 +18,7 @@ interface ApodResponse {
   media_type: string;
   date: string;
   copyright?: string;
+  thumbnail_url?: string;
 }
 
 function isDirectVideoFile(url: string): boolean {
@@ -26,7 +27,7 @@ function isDirectVideoFile(url: string): boolean {
 
 export async function postApod(env: ApodEnv): Promise<void> {
   const res = await fetch(
-    `https://api.nasa.gov/planetary/apod?api_key=${env.NASA_API_KEY}`,
+    `https://api.nasa.gov/planetary/apod?api_key=${env.NASA_API_KEY}&thumbs=true`,
     {
       headers: {
         "User-Agent": "Mozilla/5.0 (compatible; BKS-TelegramBot/1.0)",
@@ -63,29 +64,36 @@ export async function postApod(env: ApodEnv): Promise<void> {
     `${creditLine}\n` +
     `🔗 Kaynak: <a href="https://apod.nasa.gov/apod/astropix.html">NASA APOD</a>`;
 
+  const caption = fullCaption.length > 1024 ? shortCaption : fullCaption;
+
   if (data.media_type === "image") {
     const imageUrl = data.hdurl || data.url;
-    if (fullCaption.length > 1024) {
-      await sendTelegramPhoto(env, imageUrl, shortCaption);
-    } else {
-      await sendTelegramPhoto(env, imageUrl, fullCaption);
-    }
+    await sendTelegramPhoto(env, imageUrl, caption);
   } else if (data.media_type === "video" && isDirectVideoFile(data.url)) {
-    // Doğrudan mp4/mov/webm dosyası ise video olarak göndermeyi dene
-    const caption = fullCaption.length > 1024 ? shortCaption : fullCaption;
+    // Doğrudan mp4/mov/webm dosyası ise video olarak göndermeyi dene (20MB sınırı içindeyse)
     const sent = await sendTelegramVideo(env, data.url, caption);
     if (!sent) {
-      // Video çok büyük veya Telegram indiremedi, metne düş
-      await sendTelegramMessage(env, fullCaption.length > 4096 ? shortCaption : fullCaption);
+      // Video 20MB'ı aştı veya gönderilemedi -> thumbnail görsele düş
+      await postWithThumbnailFallback(env, data, caption);
     }
   } else {
-    // YouTube gibi gömülü video ise (doğrudan dosya değil), metin + link olarak gönder
-    const messageWithLink = `${fullCaption}\n\n🎬 Video: ${data.url}`;
-    await sendTelegramMessage(
-      env,
-      messageWithLink.length > 4096 ? shortCaption : messageWithLink
-    );
+    // YouTube gibi gömülü video, doğrudan dosya değil -> thumbnail görsele düş
+    await postWithThumbnailFallback(env, data, caption);
   }
 
   await markAsPosted(env.DB, contentHash, "apod", data.url);
+}
+
+async function postWithThumbnailFallback(
+  env: ApodEnv,
+  data: ApodResponse,
+  caption: string
+): Promise<void> {
+  if (data.thumbnail_url) {
+    await sendTelegramPhoto(env, data.thumbnail_url, caption);
+  } else {
+    // Hiç thumbnail de yoksa (nadir), en azından bir NASA logosu/placeholder kullanabiliriz
+    // ama pratikte thumbs=true neredeyse her zaman bir görsel döndürür.
+    console.log("APOD: video için thumbnail bulunamadı, atlanıyor.");
+  }
 }
