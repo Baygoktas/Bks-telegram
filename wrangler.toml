@@ -1,0 +1,11 @@
+name = "bks-telegram-bot"
+main = "src/index.ts"
+compatibility_date = "2026-08-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "bks-db"
+database_id = "BURAYA_D1_ID_GELECEK"
+
+[triggers]
+crons = ["0 6-16 * * *"]
